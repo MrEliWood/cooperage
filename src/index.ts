@@ -1,104 +1,70 @@
-import { writeFileSync, readdirSync, watch } from 'fs';
+import { writeFileSync, readdirSync, rmSync, watch } from 'fs';
+import { buildBarrel, getDirectories, removeFileFromPath, validateFiles } from './utils';
 
-const barrels = (directories = ['utils'], language = 'ts') => {
-  const isJavaScript = language?.toLowerCase() === 'javascript' || language?.toLowerCase() === 'js';
-  const fileType = isJavaScript ? 'js' : 'ts';
+const barrels = (directories = [''], language?: string) => {
+    const isJavaScript = language?.toLowerCase() === 'javascript' || language?.toLowerCase() === 'js';
+    const fileType = isJavaScript ? 'js' : 'ts';
 
-  const createBarrel = (directory: string, contents: string[], isComponent: boolean) => {
-    console.log(`🛢️  Updating ${directory}/index.${fileType}`);
+    const createBarrel = (directory: string, contents: string[]) => {
+        console.log(`🛢️  Updating ${directory}/index.${fileType}`);
 
-    const importsArray: string[] = [];
-    const exportsArray: string[] = [];
+        const fileContents = buildBarrel(directory, contents);
+        const filePath = `.${directory}/index.${fileType}`;
 
-    contents.forEach((path) => {
-      const moduleName = path.split('.')[0];
-
-      if (moduleName === 'handleBarrels') return;
-      if (moduleName === 'index') return;
-
-      const importStatement = `import ${moduleName} from './${moduleName}';`;
-
-      importsArray.push(importStatement);
-      exportsArray.push(moduleName);
-    });
-
-    const importsString = importsArray.join('\n');
-    const exportsString = `export${isComponent ? ' default' : ''} { ${exportsArray.join(', ')} }`;
-
-    const fileContents = importsString + '\n\n' + exportsString;
-    const filePath = `./${directory}/index.${fileType}`;
-
-    writeFileSync(filePath, fileContents);
-  };
-
-  const handleBarrels = (directories: string[], affectedDirectory?: string) => {
-    directories.forEach((directory) => {
-      const contents = readdirSync(`./${directory}`);
-
-      const skipDirectory = contents.some(
-        (file) =>
-          file?.includes('.tsx') ||
-          file?.includes('.jsx') ||
-          file?.includes('.css') ||
-          file?.includes('.json') ||
-          file?.includes('.md') ||
-          file?.includes('.gitignore')
-      );
-      if (skipDirectory) return;
-
-      const subDirectories = contents.filter((subDirectory) => !subDirectory.includes('.'));
-
-      if (subDirectories.length > 0) {
-        const subDirectoryPaths = subDirectories.map((subDirectory) => `${directory}/${subDirectory}`);
-        handleBarrels(subDirectoryPaths, affectedDirectory);
-      }
-
-      if (directory === affectedDirectory || !affectedDirectory) {
-        const directoryArray = directory.split('/');
-        const isComponent = directoryArray[0] === 'components' && directoryArray.length > 1;
-
-        createBarrel(directory, contents, isComponent);
-      }
-    });
-  };
-
-  const watchDirectory = (directories: string[]) => {
-    const ac = new AbortController();
-
-    const options = {
-      persistent: true,
-      recursive: true,
-      signal: ac.signal
+        writeFileSync(filePath, fileContents);
     };
 
-    watch('./', options, (eventType, filename) => {
-      if (filename?.includes('.next')) return;
-      if (filename?.includes('handleBarrels')) return;
-      if (filename?.includes('index')) return;
+    const generateBarrels = (directories: string[], affectedDirectory?: string) => {
+        directories.forEach((directory) => {
+            if (directory.includes('node_modules')) return;
+            if (directory.includes('.next')) return;
 
-      console.log(`🛢️  Cooperage Noticed changes to ${filename}`);
+            const contents = readdirSync(`.${directory}`);
+            if (contents.length < 1) return;
 
-      const pathArray = filename?.split('/') || [];
-      pathArray.pop();
+            const subDirectories = getDirectories(directory, contents);
+            if (subDirectories) generateBarrels(subDirectories, affectedDirectory);
 
-      const affectedDirectory = pathArray?.join('/');
+            const hasValidFiles = validateFiles(contents);
+            if (!hasValidFiles) return;
 
-      ac.abort();
-      handleBarrels(directories, affectedDirectory);
-      watchDirectory(directories);
-    });
-  };
+            const updateDirectory = directory === affectedDirectory || !affectedDirectory;
+            if (updateDirectory) createBarrel(directory, contents);
+        });
+    };
 
-  console.log();
+    const watchDirectory = (directories: string[]) => {
+        const ac = new AbortController();
 
-  watchDirectory(directories);
-  handleBarrels(directories);
+        const options = {
+            persistent: true,
+            recursive: true,
+            signal: ac.signal
+        };
 
-  console.log();
-  console.log(`🛢️  Cooperage is watching for file changes`);
-  console.log();
+        watch('./', options, (eventType, filename) => {
+            if (filename?.includes('node_modules')) return;
+            if (filename?.includes('.next')) return;
+            if (filename?.includes('index')) return;
 
-  return `🛢️  Cooperage is watching for file changes`;
+            console.log(`🛢️  Cooperage noticed changes to ${filename}`);
+
+            const affectedDirectory = removeFileFromPath(filename);
+
+            ac.abort();
+            generateBarrels(directories, affectedDirectory);
+            watchDirectory(directories);
+        });
+    };
+
+    console.log(); // line break
+
+    watchDirectory(directories);
+    generateBarrels(directories);
+
+    console.log(); // line break
+    console.log(`🛢️  Cooperage is watching for file changes`);
+    console.log(); // line break
 };
 
 //
@@ -116,7 +82,7 @@ const barrels = (directories = ['utils'], language = 'ts') => {
 //
 //////////////////////////////////////////////////////
 
-barrels(['utils', 'components']);
+// barrels(['utils', 'components']);
 
 //////////////////////////////////////////////////////
 
